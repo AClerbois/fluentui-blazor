@@ -195,7 +195,7 @@ public partial class FluentCheckbox : FluentInputBase<bool>, IFluentComponentEle
 
     private async Task SetToCheckedAsync()
     {
-        await SetCheckStateChangedAsync(true);
+        await SetCheckStateChangedAsync(newValue: true);
     }
 
     private async Task SetToUncheckedAsync()

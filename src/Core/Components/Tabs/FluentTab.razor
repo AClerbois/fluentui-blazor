@@ -1,0 +1,32 @@
+﻿@namespace Microsoft.FluentUI.AspNetCore.Components
+@using Microsoft.FluentUI.AspNetCore.Components.Extensions
+@inherits FluentComponentBase
+
+<fluent-tab class="@LabelClassValue"
+            style="@LabelStyleValue"
+            id="@Id"
+            disabled="@Disabled">
+
+    @if (Icon is not null)
+    {
+        <FluentIcon Value="@Icon" Width="1em" Style="display:inline-flex;" />
+    }
+
+    @if (Header is null)
+    {
+        @Label
+    }
+    else
+    {
+        @Header
+    }
+</fluent-tab>
+<fluent-tab-panel class="@ClassValue"
+                  style="@StyleValue"
+                  id="@Id-panel">
+    @if (Owner.ActiveId == Id)
+    {
+        @Content
+        @ChildContent
+    }
+</fluent-tab-panel>
