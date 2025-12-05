@@ -4,20 +4,26 @@
 
 <FluentLayout @key="@GetLayoutKey()" Style="@LayoutStyleHeight" NavigationDeferredLoading="true">
 
-@* ------------------- *@
+    @* ------------------- *@
 @*       Header        *@
 @* ------------------- *@
 <FluentLayoutItem Area="@LayoutArea.Header" Height="44px">
     <FluentStack VerticalAlignment="@VerticalAlignment.Center" HorizontalGap="4px" Height="100%" >
-        @* Hamburger on Mobile *@
+            @* Hamburger on Mobile *@
         <FluentLayoutHamburger @ref="@_hamburger" Style="margin: 2px 12px;" PanelHeader="Fluent UI Blazor" />
 
-        @* Microsoft Logo *@
+            @* Microsoft Logo *@
         <MicrosoftLogo />
 
-        <FluentSpacer />
+            <FluentSpacer />
 
-        @* DarkTheme *@
+        @* GitHub link *@
+        <a href="https://github.com/microsoft/fluentui-blazor/tree/dev-v5" class="github-logo-link" target="_blank"
+                rel="noopener noreferrer">
+            <GitHubLogo />
+        </a>
+
+             @* DarkTheme *@
         <FluentButton IconStart="@(new Icons.Regular.Size20.DarkTheme().WithColor("var(--colorNeutralForegroundOnBrand)"))"
                         OnClick="@SwitchThemeAsync"
                         Appearance="ButtonAppearance.Transparent"
@@ -38,55 +44,55 @@
                         BackgroundColor="@(_consoleLogOpened ? "var(--colorBrandBackground)" : "var(--colorBrandBackgroundHover)")"
                         Title="Open or hide the console" />
 
-    </FluentStack>
-</FluentLayoutItem>
+        </FluentStack>
+    </FluentLayoutItem>
 
-@* ------------------- *@
+    @* ------------------- *@
 @*     Left menu       *@
 @* ------------------- *@
 
 <FluentLayoutItem Area="@LayoutArea.Navigation" Width="300px" Sticky="true" Height="var(--layout-body-height)"
-                    Style="overflow-y: auto; padding: 8px; border-right: var(--strokeWidthThin) solid var(--colorNeutralStroke1);">
-    <DemoNavMenu Hamburger="@_hamburger" />
-</FluentLayoutItem>
+        Style="overflow-y: auto; padding: 8px; border-right: var(--strokeWidthThin) solid var(--colorNeutralStroke1);">
+        <DemoNavMenu Hamburger="@_hamburger" />
+    </FluentLayoutItem>
 
-@* ------------------- *@
+    @* ------------------- *@
 @*       Body          *@
 @* ------------------- *@
 
 @if (IsHomePage())
-{
-    <FluentLayoutItem Area="@LayoutArea.Content" Class="demo-home">
-        <div class="demo-home">
-            <div>@Body</div>
-            <div><DemoAsidePanel Page="@Navigation.ToBaseRelativePath(Navigation.Uri)" /></div>
-        </div>
-    </FluentLayoutItem>
-}
-else
-{
-    <FluentLayoutItem Area="@LayoutArea.Content">
-        <FluentErrorBoundary DisplayErrorDetails="ErrorBoundaryDetails.ErrorMessage" OnCloseRedirectUrl="/">
-            @Body
-        </FluentErrorBoundary>
-    </FluentLayoutItem>
+    {
+        <FluentLayoutItem Area="@LayoutArea.Content" Class="demo-home">
+            <div class="demo-home">
+                <div>@Body</div>
+                <div><DemoAsidePanel Page="@Navigation.ToBaseRelativePath(Navigation.Uri)" /></div>
+            </div>
+        </FluentLayoutItem>
+    }
+    else
+    {
+        <FluentLayoutItem Area="@LayoutArea.Content">
+            <FluentErrorBoundary DisplayErrorDetails="ErrorBoundaryDetails.ErrorMessage" OnCloseRedirectUrl="/">
+                @Body
+            </FluentErrorBoundary>
+        </FluentLayoutItem>
 
-    <FluentLayoutItem Area="@LayoutArea.Aside" Width="240px" Sticky="true" hidden-when="sm">
-        <DemoAsidePanel Page="@Navigation.ToBaseRelativePath(Navigation.Uri)" />
-    </FluentLayoutItem>
-}
+        <FluentLayoutItem Area="@LayoutArea.Aside" Width="240px" Sticky="true" hidden-when="sm">
+            <DemoAsidePanel Page="@Navigation.ToBaseRelativePath(Navigation.Uri)" />
+        </FluentLayoutItem>
+    }
 
-@* ------------------- *@
+    @* ------------------- *@
 @*       Footer        *@
 @* ------------------- *@
 
 <FluentLayoutItem Area="LayoutArea.Footer" Padding="@Padding.All0">
 
-    <!-- Console -->
-    @if (_consoleLogOpened)
-    {
-        <ConsoleLogProvider Style="height: 150px;" OnClose="@(() => _consoleLogOpened = false)" />
-    }
+        <!-- Console -->
+        @if (_consoleLogOpened)
+        {
+            <ConsoleLogProvider Style="height: 150px;" OnClose="@(() => _consoleLogOpened = false)" />
+        }
 
     <!-- Version and copyright -->
     <FluentStack VerticalAlignment="@VerticalAlignment.Center"
@@ -94,21 +100,21 @@ else
                     HorizontalGap="12px"
                     Style="font-size: smaller;">
 
-        <div>
-			Version: @AppVersion.Version
-		</div>
+            <div>
+                Version: @AppVersion.Version
+            </div>
 
-        <FluentSpacer />
-		<a href="https://dotnet.microsoft.com/learn/aspnet/what-is-aspnet-core" target="_blank" hidden-when="xs">
-            Powered by @AppVersion.FrameworkDescription
-        </a>
-        <FluentSpacer />
+            <FluentSpacer />
+            <a href="https://dotnet.microsoft.com/learn/aspnet/what-is-aspnet-core" target="_blank" hidden-when="xs">
+                Powered by @AppVersion.FrameworkDescription
+            </a>
+            <FluentSpacer />
 
-		<div hidden-when="xs">
-			&copy; Microsoft @AppVersion.CurrentYear. All rights reserved.
-		</div>
-    </FluentStack>
-</FluentLayoutItem>
+            <div hidden-when="xs">
+                &copy; Microsoft @AppVersion.CurrentYear. All rights reserved.
+            </div>
+        </FluentStack>
+    </FluentLayoutItem>
 
 </FluentLayout>
 
