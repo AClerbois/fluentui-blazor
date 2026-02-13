@@ -129,6 +129,11 @@
     <ProjectReference Include="..\..\Core\Microsoft.FluentUI.AspNetCore.Components.csproj" />
   </ItemGroup>
 
+  <!-- Fluent UI Icons package for SVG content access -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components.Icons" />
+  </ItemGroup>
+
   <!-- Exclude duplicate XML documentation file -->
   <ItemGroup>
     <Content Remove="..\..\Tools\FluentUI.Demo.DocApiGen\Microsoft.FluentUI.AspNetCore.Components.xml" />

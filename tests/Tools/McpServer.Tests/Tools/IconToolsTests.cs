@@ -16,7 +16,8 @@ public class IconToolsTests
     {
         var synonymService = new IconSynonymService();
         var iconService = new IconService(synonymService);
-        return new IconTools(iconService);
+        var svgProvider = new IconSvgProvider();
+        return new IconTools(iconService, svgProvider);
     }
 
     #region SearchIcons Tool
@@ -161,6 +162,69 @@ public class IconToolsTests
         var result = tools.GetIconDetails("Bookmark");
 
         Assert.Contains("```razor", result, StringComparison.Ordinal);
+        Assert.Contains("FluentIcon", result, StringComparison.Ordinal);
+    }
+
+    #endregion
+
+    #region ShowIcon Tool
+
+    [Fact]
+    public void ShowIcon_EmptyName_ReturnsHelpMessage()
+    {
+        var tools = CreateTools();
+        var result = tools.ShowIcon("");
+
+        Assert.Contains("provide an icon name", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ShowIcon_ValidIcon_ReturnsPreview()
+    {
+        var tools = CreateTools();
+        var result = tools.ShowIcon("Bookmark");
+
+        Assert.Contains("# Bookmark", result, StringComparison.Ordinal);
+        Assert.Contains("## Preview", result, StringComparison.Ordinal);
+        Assert.Contains("## Details", result, StringComparison.Ordinal);
+        Assert.Contains("## Usage", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShowIcon_WithVariant_UsesSpecifiedVariant()
+    {
+        var tools = CreateTools();
+        var result = tools.ShowIcon("Bookmark", "Filled");
+
+        Assert.Contains("**Variant:** Filled", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShowIcon_WithSize_UsesSpecifiedSize()
+    {
+        var tools = CreateTools();
+        var result = tools.ShowIcon("Bookmark", null, 24);
+
+        Assert.Contains("**Size:** 24px", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShowIcon_NonExistent_ReturnsSuggestions()
+    {
+        var tools = CreateTools();
+        var result = tools.ShowIcon("Bookmar"); // Typo
+
+        Assert.Contains("Bookmark", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShowIcon_ContainsCodeSnippets()
+    {
+        var tools = CreateTools();
+        var result = tools.ShowIcon("Bookmark");
+
+        Assert.Contains("```razor", result, StringComparison.Ordinal);
+        Assert.Contains("```csharp", result, StringComparison.Ordinal);
         Assert.Contains("FluentIcon", result, StringComparison.Ordinal);
     }
 

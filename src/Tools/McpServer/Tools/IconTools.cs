@@ -3,8 +3,10 @@
 // ------------------------------------------------------------------------
 
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
+using System.Web;
 using Microsoft.FluentUI.AspNetCore.McpServer.Models;
 using Microsoft.FluentUI.AspNetCore.McpServer.Services;
 using ModelContextProtocol.Server;
@@ -18,14 +20,17 @@ namespace Microsoft.FluentUI.AspNetCore.McpServer.Tools;
 public class IconTools
 {
     private const int MaxResults = 50;
+    private const int MaxResultsWithPreview = 20;
     private readonly IconService _iconService;
+    private readonly IconSvgProvider _svgProvider;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IconTools"/> class.
     /// </summary>
-    public IconTools(IconService iconService)
+    public IconTools(IconService iconService, IconSvgProvider svgProvider)
     {
         _iconService = iconService;
+        _svgProvider = svgProvider;
     }
 
     /// <summary>
@@ -34,6 +39,7 @@ public class IconTools
     /// </summary>
     [McpServerTool]
     [Description("Search for Fluent UI icons by name or keyword. Supports synonyms like 'trash' → Delete, 'notification' → Alert, 'gear' → Settings. Use this to find icons for buttons, menus, toolbars, navigation, and other UI elements.")]
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
     public string SearchIcons(
         [Description("The search term: an icon name (e.g., 'Bookmark') or a keyword (e.g., 'trash', 'notification', 'settings', 'calendar').")]
         string searchTerm,
@@ -82,33 +88,76 @@ public class IconTools
     private string FormatSearchResults(IReadOnlyList<IconModel> results, string? variant, int? size)
     {
         var sb = new StringBuilder();
-        sb.AppendLine(CultureInfo.InvariantCulture, $"# Icon Search Results ({results.Count} found{(results.Count > MaxResults ? $", showing first {MaxResults}" : "")})");
+        var showPreview = results.Count <= MaxResultsWithPreview;
+        var maxToShow = showPreview ? MaxResultsWithPreview : MaxResults;
+
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Icon Search Results ({results.Count} found{(results.Count > maxToShow ? $", showing first {maxToShow}" : "")})");
         sb.AppendLine();
 
         AppendFilters(sb, variant, size);
 
-        sb.AppendLine("| Icon Name | Variants | Sizes | Code Example |");
-        sb.AppendLine("|-----------|----------|-------|--------------|");
-
-        foreach (var icon in results.Take(MaxResults))
+        if (showPreview)
         {
-            var variants = string.Join(", ", icon.VariantNames);
-            var sizes = string.Join(", ", icon.AllSizes);
-            var (defaultVariant, defaultSize) = _iconService.GetRecommendedDefault(icon);
-            var code = $"`new Icons.{defaultVariant}.Size{defaultSize}.{icon.Name}()`";
-            sb.AppendLine(CultureInfo.InvariantCulture, $"| **{icon.Name}** | {variants} | {sizes} | {code} |");
+            // Show visual preview with SVG icons
+            sb.AppendLine("| Preview | Icon Name | Variants | Sizes | Code Example |");
+            sb.AppendLine("|---------|-----------|----------|-------|--------------|");
+
+            foreach (var icon in results.Take(maxToShow))
+            {
+                var variants = string.Join(", ", icon.VariantNames);
+                var sizes = string.Join(", ", icon.AllSizes);
+                var (defaultVariant, defaultSize) = _iconService.GetRecommendedDefault(icon);
+                var code = $"`new Icons.{defaultVariant}.Size{defaultSize}.{icon.Name}()`";
+                var preview = GetSvgPreview(icon.Name, defaultVariant, defaultSize);
+                sb.AppendLine(CultureInfo.InvariantCulture, $"| {preview} | **{icon.Name}** | {variants} | {sizes} | {code} |");
+            }
+        }
+        else
+        {
+            // Text-only table for larger result sets
+            sb.AppendLine("| Icon Name | Variants | Sizes | Code Example |");
+            sb.AppendLine("|-----------|----------|-------|--------------|");
+
+            foreach (var icon in results.Take(maxToShow))
+            {
+                var variants = string.Join(", ", icon.VariantNames);
+                var sizes = string.Join(", ", icon.AllSizes);
+                var (defaultVariant, defaultSize) = _iconService.GetRecommendedDefault(icon);
+                var code = $"`new Icons.{defaultVariant}.Size{defaultSize}.{icon.Name}()`";
+                sb.AppendLine(CultureInfo.InvariantCulture, $"| **{icon.Name}** | {variants} | {sizes} | {code} |");
+            }
         }
 
-        if (results.Count > MaxResults)
+        if (results.Count > maxToShow)
         {
             sb.AppendLine();
-            sb.AppendLine(CultureInfo.InvariantCulture, $"*{results.Count - MaxResults} more results not shown. Refine your search or add variant/size filters.*");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"*{results.Count - maxToShow} more results not shown. Refine your search or add variant/size filters.*");
         }
 
         sb.AppendLine();
         sb.AppendLine("**Usage:** `<FluentIcon Value=\"@(new Icons.{Variant}.Size{Size}.{Name}())\" />`");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Gets an SVG preview as a markdown image.
+    /// </summary>
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
+    private string GetSvgPreview(string iconName, string variant, int size)
+    {
+        var svgContent = _svgProvider.GetSvgContent(iconName, variant, size);
+        if (string.IsNullOrEmpty(svgContent))
+        {
+            return "❓";
+        }
+
+        // Create a complete SVG with viewBox and currentColor
+        var fullSvg = $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {size} {size}\" width=\"20\" height=\"20\" fill=\"currentColor\">{svgContent}</svg>";
+
+        // Encode for markdown image (data URI)
+        var encodedSvg = HttpUtility.UrlEncode(fullSvg).Replace("+", "%20", StringComparison.Ordinal);
+        return $"![{iconName}](data:image/svg+xml,{encodedSvg})";
     }
 
     private static void AppendFilters(StringBuilder sb, string? variant, int? size)
@@ -138,6 +187,7 @@ public class IconTools
     /// </summary>
     [McpServerTool]
     [Description("Get full details for a specific Fluent UI icon including all available variants (Filled, Regular, Light, Color) and sizes. Use this after SearchIcons to get complete information about an icon.")]
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
     public string GetIconDetails(
         [Description("The exact icon name (e.g., 'Bookmark', 'Alert', 'Calendar', 'ArrowLeft').")]
         string iconName)
@@ -156,6 +206,133 @@ public class IconTools
         return FormatIconDetails(icon);
     }
 
+    /// <summary>
+    /// Shows a single Fluent UI icon with a large visual preview.
+    /// </summary>
+    [McpServerTool]
+    [Description("Display a single Fluent UI icon with a large visual preview. Shows the icon in the specified variant and size, with the Blazor code to use it.")]
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
+    public string ShowIcon(
+        [Description("The exact icon name (e.g., 'Bookmark', 'Alert', 'Calendar', 'DocumentEdit').")]
+        string iconName,
+        [Description("Optional: The variant — 'Filled' (solid), 'Regular' (outlined), 'Light' (thin). Defaults to Regular.")]
+        string? variant = null,
+        [Description("Optional: The size — 10, 12, 16, 20, 24, 28, 32, or 48. Defaults to 20.")]
+        int? size = null)
+    {
+        if (string.IsNullOrWhiteSpace(iconName))
+        {
+            return "Please provide an icon name.";
+        }
+
+        var icon = _iconService.GetIconByName(iconName);
+        if (icon is null)
+        {
+            return FormatIconNotFound(iconName);
+        }
+
+        // Determine variant and size
+        var selectedVariant = variant ?? "Regular";
+        if (!icon.Variants.ContainsKey(selectedVariant))
+        {
+            selectedVariant = icon.VariantNames.FirstOrDefault() ?? "Regular";
+        }
+
+        var availableSizes = icon.Variants.TryGetValue(selectedVariant, out var sizes) ? sizes : icon.AllSizes;
+        var selectedSize = size ?? (availableSizes.Contains(20) ? 20 : availableSizes.FirstOrDefault());
+
+        if (!availableSizes.Contains(selectedSize))
+        {
+            selectedSize = availableSizes.FirstOrDefault();
+        }
+
+        return FormatSingleIcon(icon, selectedVariant, selectedSize);
+    }
+
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
+    private string FormatSingleIcon(IconModel icon, string variant, int size)
+    {
+        var sb = new StringBuilder();
+
+        // Large header with icon name
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# {icon.Name}");
+        sb.AppendLine();
+
+        // Large visual preview
+        AppendSingleIconPreview(sb, icon, variant, size);
+
+        // Info
+        AppendSingleIconDetails(sb, icon, variant, size);
+
+        // Code
+        AppendSingleIconUsage(sb, icon.Name, variant, size);
+
+        return sb.ToString();
+    }
+
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
+    private void AppendSingleIconPreview(StringBuilder sb, IconModel icon, string variant, int size)
+    {
+        sb.AppendLine("## Preview");
+        sb.AppendLine();
+
+        var svgContent = _svgProvider.GetSvgContent(icon.Name, variant, size);
+        if (string.IsNullOrEmpty(svgContent))
+        {
+            sb.AppendLine("*(Preview not available for this variant/size combination)*");
+            sb.AppendLine();
+            return;
+        }
+
+        // Multiple display sizes
+        int[] displaySizes = [64, 32, 20, 16];
+        foreach (var displaySize in displaySizes)
+        {
+            var svg = $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {size} {size}\" width=\"{displaySize}\" height=\"{displaySize}\" fill=\"currentColor\">{svgContent}</svg>";
+            var encoded = HttpUtility.UrlEncode(svg).Replace("+", "%20", StringComparison.Ordinal);
+
+            if (displaySize == 64)
+            {
+                sb.AppendLine(CultureInfo.InvariantCulture, $"![{icon.Name} {displaySize}px](data:image/svg+xml,{encoded})");
+                sb.AppendLine();
+            }
+            else
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"![{icon.Name} {displaySize}px](data:image/svg+xml,{encoded}) ");
+            }
+        }
+
+        sb.AppendLine();
+        sb.AppendLine();
+    }
+
+    private static void AppendSingleIconDetails(StringBuilder sb, IconModel icon, string variant, int size)
+    {
+        sb.AppendLine("## Details");
+        sb.AppendLine();
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- **Variant:** {variant}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- **Size:** {size}px");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- **Available variants:** {string.Join(", ", icon.VariantNames)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- **Available sizes:** {string.Join(", ", icon.AllSizes.Select(s => $"{s}px"))}");
+        sb.AppendLine();
+    }
+
+    private static void AppendSingleIconUsage(StringBuilder sb, string iconName, string variant, int size)
+    {
+        sb.AppendLine("## Usage");
+        sb.AppendLine();
+        sb.AppendLine("**Blazor component:**");
+        sb.AppendLine("```razor");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"<FluentIcon Value=\"@(new Icons.{variant}.Size{size}.{iconName}())\" />");
+        sb.AppendLine("```");
+        sb.AppendLine();
+        sb.AppendLine("**C# code:**");
+        sb.AppendLine("```csharp");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"var icon = new Icons.{variant}.Size{size}.{iconName}();");
+        sb.AppendLine("```");
+    }
+
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
     private string FormatIconNotFound(string iconName)
     {
         var suggestions = _iconService.SearchIcons(iconName);
@@ -166,7 +343,9 @@ public class IconTools
             sb.AppendLine();
             foreach (var s in suggestions.Take(10))
             {
-                sb.AppendLine(CultureInfo.InvariantCulture, $"- **{s.Name}** ({string.Join(", ", s.VariantNames)})");
+                var (defaultVariant, defaultSize) = _iconService.GetRecommendedDefault(s);
+                var preview = GetSvgPreview(s.Name, defaultVariant, defaultSize);
+                sb.AppendLine(CultureInfo.InvariantCulture, $"- {preview} **{s.Name}** ({string.Join(", ", s.VariantNames)})");
             }
 
             return sb.ToString();
@@ -175,6 +354,7 @@ public class IconTools
         return $"Icon '{iconName}' not found in the catalog. Use SearchIcons to discover available icons.";
     }
 
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
     private string FormatIconDetails(IconModel icon)
     {
         var result = new StringBuilder();
@@ -182,6 +362,10 @@ public class IconTools
 
         result.AppendLine(CultureInfo.InvariantCulture, $"# {icon.Name}");
         result.AppendLine();
+
+        // Add visual preview
+        AppendIconPreviewSection(result, icon);
+
         result.AppendLine(CultureInfo.InvariantCulture, $"**Recommended default:** `Icons.{defaultVariant}.Size{defaultSize}.{icon.Name}`");
         result.AppendLine();
 
@@ -191,7 +375,68 @@ public class IconTools
         return result.ToString();
     }
 
-    private static void AppendVariantSizeMatrix(StringBuilder sb, IconModel icon)
+    /// <summary>
+    /// Appends a visual preview section showing the icon in different variants.
+    /// </summary>
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
+    private void AppendIconPreviewSection(StringBuilder sb, IconModel icon)
+    {
+        sb.AppendLine("## Visual Preview");
+        sb.AppendLine();
+
+        // Show preview for each variant
+        var previewsShown = 0;
+        foreach (var kvp in icon.Variants.OrderBy(v => v.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (kvp.Key.Equals("Color", StringComparison.OrdinalIgnoreCase))
+            {
+                continue; // Skip Color variant as it's not available via standard classes
+            }
+
+            // Get preferred size for preview (20 or 24 or first available)
+            var previewSize = kvp.Value.Contains(20) ? 20 : (kvp.Value.Contains(24) ? 24 : kvp.Value.FirstOrDefault());
+            if (previewSize == 0)
+            {
+                continue;
+            }
+
+            var preview = GetSvgPreviewLarge(icon.Name, kvp.Key, previewSize);
+            if (preview != null)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"{preview} ");
+                previewsShown++;
+            }
+        }
+
+        if (previewsShown > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.AppendLine("*(Variants shown: " + string.Join(", ", icon.Variants.Keys.Where(k => !k.Equals("Color", StringComparison.OrdinalIgnoreCase))) + ")*");
+            sb.AppendLine();
+        }
+    }
+
+    /// <summary>
+    /// Gets a larger SVG preview for detailed view.
+    /// </summary>
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
+    private string? GetSvgPreviewLarge(string iconName, string variant, int size)
+    {
+        var svgContent = _svgProvider.GetSvgContent(iconName, variant, size);
+        if (string.IsNullOrEmpty(svgContent))
+        {
+            return null;
+        }
+
+        // Create a larger SVG for detailed preview
+        var fullSvg = $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {size} {size}\" width=\"32\" height=\"32\" fill=\"currentColor\">{svgContent}</svg>";
+        var encodedSvg = HttpUtility.UrlEncode(fullSvg).Replace("+", "%20", StringComparison.Ordinal);
+        return $"![{iconName} {variant}](data:image/svg+xml,{encodedSvg})";
+    }
+
+    [RequiresUnreferencedCode("This method requires dynamic access to code.")]
+    private void AppendVariantSizeMatrix(StringBuilder sb, IconModel icon)
     {
         sb.AppendLine("## Available Variants and Sizes");
         sb.AppendLine();
@@ -206,6 +451,20 @@ public class IconTools
 
             if (!isColor)
             {
+                // Show a row of size previews
+                var previews = new List<string>();
+                foreach (var size in kvp.Value.Take(6)) // Limit to 6 sizes for readability
+                {
+                    var preview = GetSvgPreview(icon.Name, kvp.Key, size);
+                    previews.Add($"{preview} {size}px");
+                }
+
+                if (previews.Count > 0)
+                {
+                    sb.AppendLine(string.Join(" | ", previews));
+                    sb.AppendLine();
+                }
+
                 foreach (var size in kvp.Value)
                 {
                     sb.AppendLine(CultureInfo.InvariantCulture, $"- `new Icons.{kvp.Key}.Size{size}.{icon.Name}()`");

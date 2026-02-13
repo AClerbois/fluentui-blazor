@@ -1,0 +1,46 @@
+// ------------------------------------------------------------------------
+// This file is licensed to you under the MIT License.
+// ------------------------------------------------------------------------
+//
+// Alternative entry point for testing MCP Apps with HTTP transport.
+// To use this:
+// 1. Rename Program.cs to Program.Stdio.cs
+// 2. Rename this file to Program.cs
+// 3. Run: dotnet run
+// 4. Configure VS Code MCP: { "type": "http", "url": "http://localhost:3001/mcp" }
+
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Hosting;
+using Microsoft.FluentUI.AspNetCore.McpServer.Extensions;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Configure to listen on port 3001
+builder.WebHost.UseUrls("http://localhost:3001");
+
+// Add MCP server with HTTP transport
+builder.Services
+    .AddFluentUIDocumentation()
+    .AddFluentUIMcpServerWithHttp();
+
+var app = builder.Build();
+
+// Map MCP endpoint
+app.MapMcp("/mcp");
+
+// Console info
+Console.WriteLine();
+Console.WriteLine("🎨 Fluent UI Blazor MCP Server (HTTP Mode)");
+Console.WriteLine("==========================================");
+Console.WriteLine("MCP server listening on http://localhost:3001/mcp");
+Console.WriteLine();
+Console.WriteLine("Add to your VS Code MCP config:");
+Console.WriteLine("  {");
+Console.WriteLine("    \"type\": \"http\",");
+Console.WriteLine("    \"url\": \"http://localhost:3001/mcp\"");
+Console.WriteLine("  }");
+Console.WriteLine();
+Console.WriteLine("Press Ctrl+C to stop the server");
+Console.WriteLine();
+
+await app.RunAsync();

@@ -53,6 +53,9 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IconSynonymService>();
         services.AddSingleton<IconService>();
 
+        // Icon SVG provider (loads SVG content from Icon assemblies)
+        services.AddSingleton<IconSvgProvider>();
+
         return services;
     }
 
@@ -63,6 +66,7 @@ internal static class ServiceCollectionExtensions
     /// <para><strong>Tools</strong> (model-controlled): For dynamic queries like search, details by name.</para>
     /// <para><strong>Resources</strong> (user-controlled): For static context like component lists, categories.</para>
     /// <para><strong>Prompts</strong> (user-controlled): Pre-defined prompt templates for common tasks.</para>
+    /// <para><strong>MCP Apps</strong>: Tools can declare UI resources that render interactive HTML interfaces.</para>
     /// </remarks>
     public static IServiceCollection AddFluentUIMcpServer(this IServiceCollection services)
     {
