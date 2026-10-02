@@ -15,7 +15,7 @@ The Fluent UI Blazor MCP Server can be installed in several ways depending on yo
 Install the MCP server as a global .NET tool from NuGet.org:
 
 ```bash
-dotnet tool install -g Microsoft.FluentUI.AspNetCore.McpServer --prerelease
+dotnet tool install -g Microsoft.FluentUI.AspNetCore.McpServer
 ```
 
 After installation, configure your MCP client:
@@ -49,7 +49,7 @@ After installation, configure your MCP client:
 To update to the latest version:
 
 ```bash
-dotnet tool update -g Microsoft.FluentUI.AspNetCore.McpServer --prerelease
+dotnet tool update -g Microsoft.FluentUI.AspNetCore.McpServer
 ```
 
 ### Uninstalling the Tool
