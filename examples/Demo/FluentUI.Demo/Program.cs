@@ -4,6 +4,7 @@
 
 using FluentUI.Demo.Client;
 using Microsoft.FluentUI.AspNetCore.Components;
+//using Microsoft.FluentUI.AspNetCore.Components.Charts;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +28,9 @@ builder.Services.AddFluentUIComponents(config =>
     // config.DefaultValues.ForAny<FluentAutocomplete<object, object>>().Set(p => p.Width, "100%");
     // config.DefaultValues.ForAny<FluentAutocomplete<object, object>>().Set(p => p.Multiple, false);
 
+    // Set default value for all Chart components
+    //config.DefaultValues.ForAny<FluentChartBase>().Set(p => p.RoundedCorners, true);
+
     // Use a custom localizer
     config.Localizer = new FluentUI.Demo.MyLocalizer();
 });
@@ -39,7 +43,9 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
+#if !NET11_0_OR_GREATER
     app.UseWebAssemblyDebugging();
+#endif
 }
 else
 {

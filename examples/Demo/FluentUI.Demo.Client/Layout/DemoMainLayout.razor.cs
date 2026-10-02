@@ -2,6 +2,7 @@
 // This file is licensed to you under the MIT License.
 // ------------------------------------------------------------------------
 
+using FluentUI.Demo.Client.Layout.Cookies;
 using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components.Utilities;
@@ -11,8 +12,10 @@ namespace FluentUI.Demo.Client.Layout;
 
 public partial class DemoMainLayout
 {
+    private readonly string[] _noSideBarPages = new string[] { "/sticker-sheet" };
     private bool _consoleLogOpened;
     private bool _useReboot;
+    private CookieConsent? _cookie;
 
     [Inject]
     public required IJSRuntime JSRuntime { get; set; }
@@ -65,6 +68,7 @@ public partial class DemoMainLayout
 
     /// <summary />
     private bool IsHomePage() => Navigation.Uri == Navigation.BaseUri;
+    private bool IsNoSideBarPage() => _noSideBarPages.Any(page => Navigation.Uri.Contains(page, StringComparison.InvariantCultureIgnoreCase) || IsHomePage());
 
     /// <summary />
     private string GetLayoutKey() => IsHomePage() ? "Home" : string.Empty;
@@ -75,6 +79,14 @@ public partial class DemoMainLayout
     private async Task OpenUrlInNewTabAsync(string url)
     {
         await JSRuntime.InvokeVoidAsync("open", url, "_blank");
+    }
+
+    private async Task ManageCookieSettingsAsync()
+    {
+        if (_cookie is not null)
+        {
+            await _cookie.ManageCookiesAsync();
+        }
     }
 
     internal class GitHubIcon : Icon

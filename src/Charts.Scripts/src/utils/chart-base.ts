@@ -7,8 +7,38 @@ import type {
   Legend,
   TooltipProps,
   TooltipRenderer,
-} from './chart.options.js';
-import { getRTL } from './chart-helpers.js';
+} from './chart-options.js';
+import { escapeHtml, getRTL, parseDimensionNumber, resolvePixelDimension } from './chart-helpers.js';
+
+type TooltipVerticalPlacement = 'above' | 'below';
+type TooltipHorizontalAlign = 'start' | 'center' | 'end';
+
+interface TooltipPositionOptions {
+  preferredVertical?: TooltipVerticalPlacement;
+  horizontalAlign?: TooltipHorizontalAlign;
+  gap?: number;
+  padding?: number;
+  estimatedWidth?: number;
+  estimatedHeight?: number;
+  outputAnchorX?: boolean;
+  boundsWidth?: number;
+  boundsHeight?: number;
+  /**
+   * When the preferred side doesn't have room, clamp to the bounds instead of
+   * flipping to the opposite side of the anchor — flipping would place the
+   * tooltip directly on top of (and obscure) the hovered element.
+   */
+  preventAnchorOverlap?: boolean;
+}
+
+interface TooltipOverlapPositionOptions {
+  horizontalPlacement?: 'center' | 'side';
+  preferredHorizontalSide?: 'left' | 'right';
+  preferredVerticalSide?: TooltipVerticalPlacement;
+  verticalAlign?: 'center';
+  horizontalBounds?: { left: number; right: number };
+  gap?: number;
+}
 
 /**
  * Abstract base class shared by all chart web components.
@@ -118,9 +148,46 @@ export abstract class ChartBase extends FASTElement {
    */
   private _lastRenderedTooltipDataPoint: unknown = undefined;
 
+  /** Updates the custom tooltip renderer and refreshes a currently visible tooltip. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public setTooltipRenderer(value: TooltipRenderer<any> | undefined): void {
+    this.tooltipRenderer = value;
+    this.tooltipRendererChanged();
+  }
+
+  protected tooltipRendererChanged(): void {
+    this._lastRenderedTooltipDataPoint = undefined;
+    if (this.tooltipProps.isVisible) {
+      this.tooltipProps = { ...this.tooltipProps };
+      this._syncTooltipRendererContent();
+    }
+  }
+
+  private _syncTooltipRendererContent(): void {
+    requestAnimationFrame(() => {
+      const tooltipBody = this.shadowRoot?.querySelector<HTMLElement>('.tooltip-body');
+      const defaultContent = this.shadowRoot?.querySelector<HTMLElement>('.tooltip-default-content');
+      const customContent = this.shadowRoot?.querySelector<HTMLElement>('.tooltip-custom-content');
+      if (!this.tooltipRenderer && tooltipBody && !defaultContent) {
+        tooltipBody.innerHTML = this._buildDefaultTooltipHTML(this._currentTooltipDataPoint);
+        return;
+      }
+      if (defaultContent) {
+        defaultContent.hidden = !!this.tooltipRenderer;
+      }
+      if (customContent) {
+        customContent.hidden = !this.tooltipRenderer;
+        if (!this.tooltipRenderer) {
+          customContent.innerHTML = '';
+        }
+      }
+    });
+  }
+
   protected tooltipPropsChanged(_old: TooltipProps, newValue: TooltipProps): void {
     if (newValue.isVisible && !this.hideTooltip) {
       this.liveRegionText = [newValue.legend, newValue.yValue].filter(Boolean).join(': ');
+      this._syncTooltipRendererContent();
       // Only invoke the renderer when the hovered data point has changed.
       //
       // This intentionally allows re-rendering on true→true isVisible transitions
@@ -129,8 +196,12 @@ export abstract class ChartBase extends FASTElement {
       // GanttChart's position-clamping RAF, which updates only xPos and leaves
       // _currentTooltipDataPoint unchanged.
       if (this.tooltipRenderer && this._currentTooltipDataPoint !== this._lastRenderedTooltipDataPoint) {
+        const renderer = this.tooltipRenderer;
         this._lastRenderedTooltipDataPoint = this._currentTooltipDataPoint;
         requestAnimationFrame(() => {
+          if (this.tooltipRenderer !== renderer) {
+            return;
+          }
           // Call the renderer BEFORE querying .tooltip-body.
           //
           // On the very first hover, FAST's when() directive hasn't yet run its own
@@ -138,40 +209,51 @@ export abstract class ChartBase extends FASTElement {
           // We still need to invoke the renderer so that the host (e.g. Blazor) is
           // notified and can re-render its portal.  The bridge's MutationObserver will
           // push the portal content once Blazor renders AND FAST has inserted the body.
-          const result = this.tooltipRenderer!(this._currentTooltipDataPoint, (p: unknown) =>
-            this._buildDefaultTooltipHTML(p),
-          );
+          const result = renderer(this._currentTooltipDataPoint, (p: unknown) => this._buildDefaultTooltipHTML(p));
 
-          const el = this.shadowRoot?.querySelector<HTMLElement>('.tooltip-body');
+          const getTarget = () =>
+            this.shadowRoot?.querySelector<HTMLElement>('.tooltip-custom-content') ??
+            this.shadowRoot?.querySelector<HTMLElement>('.tooltip-body');
+          const renderResult = (el: HTMLElement) => {
+            el.innerHTML = '';
+            if (result instanceof Promise) {
+              result.then(r => {
+                if (!this.tooltipProps?.isVisible || this.tooltipRenderer !== renderer) return;
+                const body = getTarget();
+                if (!body) return;
+                if (typeof r === 'string') {
+                  body.innerHTML = r;
+                } else {
+                  body.appendChild(r);
+                }
+              });
+            } else if (typeof result === 'string') {
+              el.innerHTML = result;
+            } else {
+              el.appendChild(result);
+            }
+          };
+
+          const tooltipBody = this.shadowRoot?.querySelector<HTMLElement>('.tooltip-body');
+          const customContent = this.shadowRoot?.querySelector<HTMLElement>('.tooltip-custom-content');
+          if (tooltipBody?.classList.contains('preserve-default-content') && !customContent) {
+            requestAnimationFrame(() => {
+              if (this.tooltipRenderer !== renderer) return;
+              const deferredTarget = this.shadowRoot?.querySelector<HTMLElement>('.tooltip-custom-content');
+              if (deferredTarget) {
+                renderResult(deferredTarget);
+              }
+            });
+            return;
+          }
+
+          const el = getTarget();
           if (!el) {
             // .tooltip-body is not in the shadow DOM yet — FAST will insert it in the
             // next rAF.  The bridge MutationObserver handles populating it once ready.
             return;
           }
-
-          if (result instanceof Promise) {
-            // Keep default tooltip content visible until the async result arrives.
-            // Clearing el.innerHTML immediately would make the tooltip appear blank
-            // for the full Blazor round-trip duration (100-300 ms).
-            result.then(r => {
-              if (!this.tooltipProps?.isVisible) return;
-              const body = this.shadowRoot?.querySelector<HTMLElement>('.tooltip-body');
-              if (!body) return;
-              body.innerHTML = '';
-              if (typeof r === 'string') {
-                body.innerHTML = r;
-              } else {
-                body.appendChild(r);
-              }
-            });
-          } else {
-            el.innerHTML = '';
-            if (typeof result === 'string') {
-              el.innerHTML = result;
-            } else {
-              el.appendChild(result);
-            }
-          }
+          renderResult(el);
         });
       }
     } else {
@@ -188,22 +270,11 @@ export abstract class ChartBase extends FASTElement {
   protected _buildDefaultTooltipHTML(_dataPoint: unknown): string {
     const p = this.tooltipProps;
     return [
-      `<div class="tooltip-inner" style="border-color: ${ChartBase._escapeHtml(p.color)};">`,
-      `<div class="tooltip-legend-text">${ChartBase._escapeHtml(p.legend)}</div>`,
-      `<div class="tooltip-content-y" style="color: ${ChartBase._escapeHtml(p.color)};">${ChartBase._escapeHtml(
-        p.yValue,
-      )}</div>`,
+      `<div class="tooltip-inner" style="border-color: ${escapeHtml(p.color)};">`,
+      `<div class="tooltip-legend-text">${escapeHtml(p.legend)}</div>`,
+      `<div class="tooltip-content-y" style="color: ${escapeHtml(p.color)};">${escapeHtml(p.yValue)}</div>`,
       `</div>`,
     ].join('');
-  }
-
-  private static _escapeHtml(str: string): string {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
   }
 
   // ── Public refs ──────────────────────────────────────────────────
@@ -214,6 +285,25 @@ export abstract class ChartBase extends FASTElement {
   // ── Protected shared state ───────────────────────────────────────
 
   protected _isRTL: boolean = false;
+
+  /** CSS transform used by centered tooltip templates, adjusted for RTL inline positioning. */
+  @observable
+  protected _tooltipTransform: string = 'translateX(-50%)';
+
+  /** Keeps a freshly rendered tooltip hidden until its actual dimensions are measured. */
+  @observable
+  protected _isMeasuringTooltip: boolean = false;
+
+  private _lastTooltipHeight: number = 64;
+  private _lastTooltipWidth: number = 176;
+
+  public get tooltipInlineTransform(): string {
+    return this._tooltipTransform;
+  }
+
+  public get isMeasuringTooltip(): boolean {
+    return this._isMeasuringTooltip;
+  }
 
   /** Set to true in a subclass to automatically observe host resize and re-render. */
   protected _enableResizeObserver: boolean = false;
@@ -231,6 +321,7 @@ export abstract class ChartBase extends FASTElement {
   private _renderDirty = false;
   private _frameHandle: number | null = null;
   private _resizeObserver?: ResizeObserver;
+  private _axisLabelTooltipEl?: HTMLDivElement;
 
   constructor() {
     super();
@@ -287,6 +378,9 @@ export abstract class ChartBase extends FASTElement {
       'selectedLegends',
       'legends',
       'tooltipProps',
+      'liveRegionText',
+      '_tooltipTransform',
+      '_isMeasuringTooltip',
     ] as const;
 
     const saved: Partial<Record<(typeof attrFields)[number], unknown>> = {};
@@ -331,6 +425,9 @@ export abstract class ChartBase extends FASTElement {
     this.shadowRoot?.removeEventListener('pointerup', this._onShadowPointerUp);
     this._resizeObserver?.disconnect();
     this._cancelScheduledRender();
+    this._hideAxisLabelTooltip();
+    this._axisLabelTooltipEl?.remove();
+    this._axisLabelTooltipEl = undefined;
     super.disconnectedCallback();
   }
 
@@ -434,9 +531,14 @@ export abstract class ChartBase extends FASTElement {
 
   public handleLegendClick(legendTitle: string) {
     if (this.allowMultipleLegendSelection) {
-      const nextSelection = this.selectedLegends.includes(legendTitle)
+      let nextSelection = this.selectedLegends.includes(legendTitle)
         ? this.selectedLegends.filter(legend => legend !== legendTitle)
         : [...this.selectedLegends, legendTitle];
+
+      const legendCount = new Set(this.legends.map(legend => legend.legend)).size;
+      if (nextSelection.length === legendCount) {
+        nextSelection = [];
+      }
 
       this.selectedLegends = nextSelection;
 
@@ -511,6 +613,13 @@ export abstract class ChartBase extends FASTElement {
 
   // ── Tooltip helpers ──────────────────────────────────────────────
 
+  private static _clamp(value: number, min: number, max: number): number {
+    if (max < min) {
+      return min;
+    }
+    return Math.min(Math.max(value, min), max);
+  }
+
   /**
    * Returns true when the tooltip should be shown for the given legend title.
    * Returns false when legend highlighting is active and excludes this legend.
@@ -526,6 +635,223 @@ export abstract class ChartBase extends FASTElement {
    */
   protected _clearTooltip(): void {
     this.tooltipProps = { isVisible: false, legend: '', yValue: '', color: '', xPos: 0, yPos: 0 };
+  }
+
+  /**
+   * Shows a shared HTML tooltip for a truncated axis label.
+   * This mirrors React chart behavior more closely than native <title>.
+   */
+  protected _showAxisLabelTooltip(target: SVGTextElement, fullLabel: string): void {
+    if (!this.shadowRoot || !fullLabel) {
+      return;
+    }
+
+    const tooltip = this._getOrCreateAxisLabelTooltipElement();
+    tooltip.textContent = fullLabel;
+
+    const hostRect = this.getBoundingClientRect();
+    const labelRect = target.getBoundingClientRect();
+    const left = (labelRect.left + labelRect.right) / 2 - hostRect.left;
+    const bottom = hostRect.bottom - (labelRect.top - 4);
+
+    tooltip.style.left = `${Math.max(0, left)}px`;
+    tooltip.style.bottom = `${Math.max(0, bottom)}px`;
+    tooltip.style.transform = 'translateX(-50%)';
+    tooltip.style.opacity = '0.9';
+  }
+
+  /** Hides the shared axis-label tooltip overlay. */
+  protected _hideAxisLabelTooltip(): void {
+    if (this._axisLabelTooltipEl) {
+      this._axisLabelTooltipEl.style.opacity = '0';
+    }
+  }
+
+  private _getOrCreateAxisLabelTooltipElement(): HTMLDivElement {
+    if (this._axisLabelTooltipEl && this._axisLabelTooltipEl.isConnected) {
+      return this._axisLabelTooltipEl;
+    }
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'axis-label-tooltip';
+    tooltip.setAttribute('role', 'tooltip');
+    tooltip.style.opacity = '0';
+    this.shadowRoot!.appendChild(tooltip);
+    this._axisLabelTooltipEl = tooltip;
+    return tooltip;
+  }
+
+  /**
+   * Positions the tooltip around an anchor point and keeps it within the host bounds.
+   * `anchorX` / `anchorY` are physical host-relative coordinates (LTR geometry).
+   */
+  protected _positionTooltipFromAnchor(anchorX: number, anchorY: number, options: TooltipPositionOptions = {}): void {
+    if (!this.tooltipProps?.isVisible || this.hideTooltip) {
+      return;
+    }
+
+    this.tooltipProps = { ...this.tooltipProps, ...this._resolveTooltipPositionFromAnchor(anchorX, anchorY, options) };
+  }
+
+  /**
+   * Computes clamped tooltip position around an anchor point.
+   * `anchorX` / `anchorY` are physical host-relative coordinates (LTR geometry).
+   */
+  protected _resolveTooltipPositionFromAnchor(
+    anchorX: number,
+    anchorY: number,
+    options: TooltipPositionOptions = {},
+  ): Pick<TooltipProps, 'xPos' | 'yPos'> {
+    const hostWidth = this.offsetWidth;
+    const hostHeight = this.offsetHeight;
+    if (hostWidth <= 0 || hostHeight <= 0) {
+      return { xPos: 0, yPos: 0 };
+    }
+
+    const preferredVertical = options.preferredVertical ?? 'above';
+    const horizontalAlign = options.horizontalAlign ?? 'center';
+    const gap = options.gap ?? 8;
+    const padding = options.padding ?? 8;
+    const estimatedWidth = options.estimatedWidth ?? 176;
+    const estimatedHeight = options.estimatedHeight ?? 64;
+    const outputAnchorX = options.outputAnchorX ?? false;
+    const boundsWidth = Math.max(0, Math.min(options.boundsWidth ?? hostWidth, hostWidth));
+    const boundsHeight = Math.max(0, Math.min(options.boundsHeight ?? hostHeight, hostHeight));
+    const widthForClamp = boundsWidth || hostWidth;
+    const heightForClamp = boundsHeight || hostHeight;
+
+    let left = anchorX;
+    if (horizontalAlign === 'center') {
+      left = anchorX - estimatedWidth / 2;
+    } else if (horizontalAlign === 'end') {
+      left = anchorX - estimatedWidth;
+    }
+
+    const maxLeft = widthForClamp - estimatedWidth - padding;
+    left = ChartBase._clamp(left, padding, maxLeft);
+
+    const topAbove = anchorY - estimatedHeight - gap;
+    const topBelow = anchorY + gap;
+    let top = preferredVertical === 'below' ? topBelow : topAbove;
+
+    if (preferredVertical === 'above' && top < padding) {
+      top = options.preventAnchorOverlap ? padding : topBelow;
+    } else if (preferredVertical === 'below' && top + estimatedHeight > heightForClamp - padding) {
+      top = options.preventAnchorOverlap ? heightForClamp - estimatedHeight - padding : topAbove;
+    }
+
+    const maxTop = heightForClamp - estimatedHeight - padding;
+    top = ChartBase._clamp(top, padding, maxTop);
+
+    if (outputAnchorX) {
+      const minAnchorX = padding + estimatedWidth / 2;
+      const maxAnchorX = widthForClamp - padding - estimatedWidth / 2;
+      const clampedAnchorX = ChartBase._clamp(anchorX, minAnchorX, maxAnchorX);
+      return {
+        xPos: this._isRTL ? Math.max(0, widthForClamp - clampedAnchorX) : Math.max(0, clampedAnchorX),
+        yPos: top,
+      };
+    }
+
+    const inlineStart = this._isRTL ? widthForClamp - left - estimatedWidth : left;
+    return { xPos: Math.max(0, inlineStart), yPos: top };
+  }
+
+  /**
+   * Positions a tooltip outside the active datum, then corrects that position after
+   * measuring the rendered tooltip. Subclasses provide the datum's vertical bounds.
+   */
+  protected _positionTooltipAvoidingOverlap(
+    anchorX: number,
+    topY: number,
+    bottomY: number = topY,
+    isFreshShow: boolean = true,
+    options: TooltipOverlapPositionOptions = {},
+  ): void {
+    const gap = options.gap ?? 16;
+    const padding = 8;
+    const useSidePlacement = options.horizontalPlacement === 'side';
+
+    this._tooltipTransform = useSidePlacement ? 'none' : this._isRTL ? 'translateX(50%)' : 'translateX(-50%)';
+
+    const applyPosition = (estimatedHeight: number, estimatedWidth: number): void => {
+      const hostHeight = this.offsetHeight;
+      const hostWidth = this.offsetWidth;
+      const roomAbove = topY - padding;
+      const roomBelow = hostHeight - bottomY - padding;
+      const preferBelow = options.preferredVerticalSide === 'below';
+      const preferredVertical = preferBelow
+        ? roomBelow >= estimatedHeight + gap || roomBelow >= roomAbove
+          ? 'below'
+          : 'above'
+        : roomAbove >= estimatedHeight + gap || roomAbove >= roomBelow
+        ? 'above'
+        : 'below';
+      const anchorY = preferredVertical === 'above' ? topY : bottomY;
+
+      if (useSidePlacement) {
+        const yPos =
+          options.verticalAlign === 'center'
+            ? ChartBase._clamp(topY - estimatedHeight / 2, padding, hostHeight - estimatedHeight - padding)
+            : this._resolveTooltipPositionFromAnchor(anchorX, anchorY, {
+                preferredVertical,
+                preventAnchorOverlap: true,
+                estimatedHeight,
+                estimatedWidth,
+                gap,
+              }).yPos;
+        const preferLeft = options.preferredHorizontalSide ? options.preferredHorizontalSide === 'left' : this._isRTL;
+        const horizontalBounds = options.horizontalBounds ?? { left: anchorX, right: anchorX };
+        const preferredLeft = preferLeft ? horizontalBounds.left - gap - estimatedWidth : horizontalBounds.right + gap;
+        const fitsPreferredSide = preferredLeft >= padding && preferredLeft + estimatedWidth <= hostWidth - padding;
+        const physicalLeft = fitsPreferredSide
+          ? preferredLeft
+          : preferLeft
+          ? horizontalBounds.right + gap
+          : horizontalBounds.left - gap - estimatedWidth;
+        const clampedLeft = ChartBase._clamp(physicalLeft, padding, hostWidth - estimatedWidth - padding);
+        const inlineStart = this._isRTL ? hostWidth - clampedLeft - estimatedWidth : clampedLeft;
+        this.tooltipProps = { ...this.tooltipProps, xPos: Math.max(0, inlineStart), yPos };
+        return;
+      }
+
+      this._positionTooltipFromAnchor(anchorX, anchorY, {
+        outputAnchorX: true,
+        preferredVertical,
+        preventAnchorOverlap: true,
+        estimatedHeight,
+        estimatedWidth,
+        gap,
+      });
+    };
+
+    applyPosition(this._lastTooltipHeight, this._lastTooltipWidth);
+
+    if (!isFreshShow) {
+      return;
+    }
+
+    this._isMeasuringTooltip = true;
+    const measure = (retriesLeft: number): void => {
+      if (!this.tooltipProps.isVisible) {
+        this._isMeasuringTooltip = false;
+        return;
+      }
+
+      const rect = this.shadowRoot?.querySelector<HTMLElement>('.tooltip')?.getBoundingClientRect();
+      if (rect && rect.height > 0 && rect.width > 0) {
+        this._lastTooltipHeight = rect.height;
+        this._lastTooltipWidth = rect.width;
+        applyPosition(rect.height, rect.width);
+        this._isMeasuringTooltip = false;
+      } else if (retriesLeft > 0) {
+        requestAnimationFrame(() => measure(retriesLeft - 1));
+      } else {
+        this._isMeasuringTooltip = false;
+      }
+    };
+
+    requestAnimationFrame(() => measure(2));
   }
   /**
    * Implements the roving tabindex keyboard pattern for a focusable group.
@@ -548,6 +874,14 @@ export abstract class ChartBase extends FASTElement {
     (elements[currentIndex] as HTMLElement).tabIndex = -1;
     (elements[nextIndex] as HTMLElement).tabIndex = 0;
     (elements[nextIndex] as HTMLElement).focus();
+  }
+
+  /** Promotes a pointer-selected element to the active member of a roving tabindex group. */
+  protected _focusRovingElement(elements: HTMLOrSVGElement[], target: HTMLOrSVGElement): void {
+    elements.forEach(element => {
+      element.tabIndex = element === target ? 0 : -1;
+    });
+    target.focus();
   }
 
   /**
@@ -588,6 +922,7 @@ export abstract class ChartBase extends FASTElement {
 
       this._renderDirty = false;
       this._isRTL = getRTL(this);
+      this._hideAxisLabelTooltip();
       this._performRender();
     });
   }
@@ -601,7 +936,7 @@ export abstract class ChartBase extends FASTElement {
     this._renderDirty = false;
   }
 
-  // ── Host dimension helpers (used by both bar charts) ─────────────
+  // ── Dimension helpers ────────────────────────────────────────────
 
   protected _applyHostDimensions(width: number | string | undefined, height: number | string | undefined): void {
     if (width === undefined || width === null || width === '') {
@@ -619,5 +954,66 @@ export abstract class ChartBase extends FASTElement {
 
   protected _toCssLength(value: number | string): string {
     return typeof value === 'number' || /^\d+(\.\d+)?$/.test(value as string) ? `${value}px` : `${value}`;
+  }
+
+  /**
+   * Resolves a drawing-surface dimension. Explicit dimensions size the host,
+   * while its chart container supplies the SVG's remaining layout area.
+   */
+  protected _resolveChartDimension(measuredDimension: number | undefined, fallback: number): number {
+    if (measuredDimension !== undefined && Number.isFinite(measuredDimension) && measuredDimension > 0) {
+      return measuredDimension;
+    }
+
+    return fallback;
+  }
+
+  /**
+   * Resolves the plot width in pixels.
+   *
+   * An explicit `width` sizes the whole host, so when the legend is rendered beside the chart
+   * (`legend-position="start"` or `"end"`) the plot is capped by the available chart area. Without the
+   * cap the plot keeps the full host width and renders underneath the legend column.
+   *
+   * Charts that size their own SVG (donut, funnel, gauge) measure that SVG for `measuredWidth` and pass
+   * the chart area as `availableWidth`, so only the cap uses the surrounding grid cell.
+   */
+  protected _resolvePlotWidth(
+    measuredWidth: number | undefined,
+    fallback: number,
+    availableWidth: number | undefined = measuredWidth,
+  ): number {
+    const resolved = this._resolveChartDimension(
+      measuredWidth,
+      resolvePixelDimension(this.width, measuredWidth, fallback),
+    );
+    const hasSideLegend = this.legendPosition === 'start' || this.legendPosition === 'end';
+
+    if (hasSideLegend && availableWidth !== undefined && Number.isFinite(availableWidth) && availableWidth > 0) {
+      return Math.min(resolved, availableWidth);
+    }
+
+    return resolved;
+  }
+
+  /**
+   * Returns a safe SVG width/height attribute value. When an explicit numeric/pixel/percentage value
+   * is provided, the SVG is sized to '100%' of its `.chart-container` grid area so it shares the host
+   * with the chart title and legend instead of overriding their space (the container itself gets a
+   * definite size in that case because `_applyHostDimensions` sets a matching pixel size on the host).
+   * An unset value uses the component default, which avoids the browser's intrinsic 300x150 SVG
+   * fallback that would otherwise occur when a percentage can't be resolved against a definite container.
+   */
+  public _toSvgLength(value: number | string | undefined, fallback: number | string): number | string {
+    if (value === undefined || value === null || value === '') {
+      return fallback;
+    }
+
+    if (typeof value === 'string' && value.trim().endsWith('%')) {
+      return value;
+    }
+
+    const parsed = parseDimensionNumber(value);
+    return parsed !== undefined ? '100%' : fallback;
   }
 }

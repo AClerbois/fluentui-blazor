@@ -1,13 +1,5 @@
-fluent-radio-group > .my-3-o {
-  margin: unset;
-}
-
-  fluent-radio-group > .my-3-o:first-child {
-    margin-top: var(--spacingVerticalM);
-  }
-
 fluent-radio-group:not([orientation="vertical"]) > .my-3-o {
-  margin-top: var(--spacingVerticalM);
+  margin: unset;
 }
 
 fluent-radio-group > fluent-field:has(fluent-radio:focus-visible) {
@@ -18,4 +10,9 @@ fluent-radio-group > fluent-field:has(fluent-radio:focus-visible) {
 fluent-radio-group[wrap] {
   display: flex;
   flex-wrap: wrap;
+}
+
+fluent-radio-group[readonly] {
+  pointer-events: none;
+  user-select: none;
 }

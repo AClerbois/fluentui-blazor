@@ -2,6 +2,7 @@
 // This file is licensed to you under the MIT License.
 // ------------------------------------------------------------------------
 
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components.Utilities;
 
@@ -20,6 +21,8 @@ public partial class FluentAppBar : FluentComponentBase
     private IEnumerable<IAppBarItem> _searchResults = [];
 
     /// <summary />
+    [DynamicDependency(nameof(OnOverflowChangedAsync))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(OverflowChangedEventArgs))]
     public FluentAppBar(LibraryConfiguration configuration) : base(configuration)
     {
         Id = Identifier.NewId();
@@ -87,7 +90,7 @@ public partial class FluentAppBar : FluentComponentBase
         .AddStyle("min-width", "0", Orientation == Orientation.Horizontal)
         .AddStyle("height", "100%", Orientation == Orientation.Vertical)
         .AddStyle("width", "100%", Orientation == Orientation.Horizontal)
-        .AddStyle("gap", "2px")
+        .AddStyle("--fluent-overflow-gap", "2px")
         .Build();
 
     /// <summary />
@@ -103,44 +106,31 @@ public partial class FluentAppBar : FluentComponentBase
             return;
         }
 
-        ApplyOverflowState(args.FirstOverflowIndex, args.OrderedItemIds);
+        await ApplyOverflowItemsAsync(args.Items?.Select(item => item.Id));
         await InvokeAsync(StateHasChanged);
     }
 
     /// <summary />
     public async Task OverflowRaisedAsync(OverflowItem[] items)
     {
-        foreach (var item in items)
-        {
-            if (item.Id is not null && _internalAppBarContext.Apps.TryGetValue(item.Id, out var app))
-            {
-                app.Overflow = item.Overflow;
-            }
-        }
-
+        await ApplyOverflowItemsAsync(items.Select(item => item.Id));
         await InvokeAsync(StateHasChanged);
     }
 
-    private void ApplyOverflowState(int firstOverflowIndex, IReadOnlyList<string>? orderedItemIds)
+    private async Task ApplyOverflowItemsAsync(IEnumerable<string?>? itemIds)
     {
+        var overflowIds = itemIds?.OfType<string>().ToHashSet(StringComparer.Ordinal)
+                       ?? new HashSet<string>(StringComparer.Ordinal);
         foreach (var app in _internalAppBarContext.Apps.Values)
         {
-            app.Overflow = false;
+            app.Overflow = app.Id is not null && overflowIds.Contains(app.Id);
         }
 
-        if (orderedItemIds is null || orderedItemIds.Count == 0 || firstOverflowIndex < 0)
-        {
-            return;
-        }
+        HandleSearch();
 
-        for (var index = 0; index < orderedItemIds.Count; index++)
+        if (overflowIds.Count == 0)
         {
-            if (!_internalAppBarContext.Apps.TryGetValue(orderedItemIds[index], out var app))
-            {
-                continue;
-            }
-
-            app.Overflow = index >= firstOverflowIndex;
+            await HandlePopoverToggleAsync(value: false);
         }
     }
 
@@ -155,7 +145,6 @@ public partial class FluentAppBar : FluentComponentBase
 
         var handler = args.Key switch
         {
-            KeyCode.Enter => HandlePopoverToggleAsync(!_showMoreItems),
             KeyCode.Right when Orientation == Orientation.Vertical => HandlePopoverToggleAsync(value: true),
             KeyCode.Left when Orientation == Orientation.Vertical => HandlePopoverToggleAsync(value: false),
             KeyCode.Down when Orientation == Orientation.Horizontal => HandlePopoverToggleAsync(value: true),

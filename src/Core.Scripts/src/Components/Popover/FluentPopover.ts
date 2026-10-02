@@ -10,6 +10,7 @@ export namespace Microsoft.FluentUI.Blazor.Components.Popover {
     private lastAnchorRect: DOMRect | null = null;
     private positionObserverInterval: number | null = null;
     private positionUpdateFrame: number | null = null;
+    private dialogResizeObserver = new ResizeObserver(() => this.handleWindowChange());
 
     // Add backing field for opened property
     private _opened: boolean = false;
@@ -29,6 +30,9 @@ export namespace Microsoft.FluentUI.Blazor.Components.Popover {
       // Dispatch the toggle event when the popover is opened or closed
       // For nested popovers, the event is dispatched during showPopover/closePopover methods
       this.dialog.addEventListener('toggle', (e) => {
+        if (e.newState === 'closed') {
+          this.stopAnchorPositionObserver();
+        }
         if (!this.nested) {
           this.dispatchOpenedEvent(e.newState === 'open');
         }
@@ -215,14 +219,17 @@ export namespace Microsoft.FluentUI.Blazor.Components.Popover {
 
     // Dispatch event when opened or closed
     private dispatchOpenedEvent(opened: boolean) {
-      this.dispatchEvent(new CustomEvent('toggle', {
+      const eventInit = {
         detail: {
           oldState: opened ? 'closed' : 'open',
           newState: opened ? 'open' : 'closed',
         },
         bubbles: true,
         composed: true
-      }));
+      };
+
+      this.dispatchEvent(new CustomEvent('toggle', eventInit));
+      this.dispatchEvent(new CustomEvent('fluentpopovertoggle', eventInit));
     }
 
     // Handles clicks outside the dialog to close it
@@ -279,6 +286,7 @@ export namespace Microsoft.FluentUI.Blazor.Components.Popover {
 
     private startAnchorPositionObserver() {
       this.stopAnchorPositionObserver();
+      this.dialogResizeObserver.observe(this.dialog);
       this.positionObserverInterval = window.setInterval(() => {
         if (this.dialogIsOpen && this.anchorEl) {
           const rect = this.anchorEl.getBoundingClientRect();
@@ -297,6 +305,7 @@ export namespace Microsoft.FluentUI.Blazor.Components.Popover {
     }
 
     private stopAnchorPositionObserver() {
+      this.dialogResizeObserver.disconnect();
       if (this.positionObserverInterval !== null) {
         clearInterval(this.positionObserverInterval);
         this.positionObserverInterval = null;
@@ -307,54 +316,82 @@ export namespace Microsoft.FluentUI.Blazor.Components.Popover {
 
       if (this.anchorEl === null || this.dialog === null) return;
 
+      // getBoundingClientRect() is specified to return coordinates relative to the
+      // *visual* viewport. A popover uses `position: fixed`, whose containing block is the
+      // *layout* viewport. On mobile devices these two viewports can differ (e.g. while the
+      // on-screen keyboard is shown, or while the page is pinch-zoomed), and the difference is
+      // exposed via visualViewport.offsetTop / offsetLeft.
+      //
+      // To avoid mixing the two coordinate systems, all available-space calculations below are
+      // done entirely in visual-viewport-relative coordinates (i.e. as returned by
+      // getBoundingClientRect()). Only right before writing the final `top` / `left` style do we
+      // convert into layout-viewport coordinates by adding the visual viewport offset.
       const rect = this.anchorEl.getBoundingClientRect();
 
       const visualViewport = window.visualViewport;
       const viewportHeight = visualViewport?.height ?? window.innerHeight;
       const viewportWidth = visualViewport?.width ?? window.innerWidth;
-      const viewportTop = visualViewport?.offsetTop ?? 0;
-      const viewportLeft = visualViewport?.offsetLeft ?? 0;
+      // Offset between the layout viewport and the visual viewport (0 when they match).
+      const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
+      const viewportOffsetLeft = visualViewport?.offsetLeft ?? 0;
 
       const dialogHeight = this.dialog.offsetHeight + this.offsetVertical;
       const dialogWidth = this.dialog.offsetWidth + this.offsetHorizontal;
 
-      const viewportBottom = viewportTop + viewportHeight;
-      const viewportRight = viewportLeft + viewportWidth;
-
-      const spaceAbove = rect.top - viewportTop;
-      const spaceBelow = viewportBottom - rect.bottom;
-      const spaceLeft = rect.left - viewportLeft;
-      const spaceRight = viewportRight - rect.right;
+      // Space available around the anchor within the currently visible (visual) viewport.
+      // The visual viewport's own top-left corner is (0, 0) in getBoundingClientRect() coordinates.
+      const spaceAbove = rect.top;
+      const spaceBelow = viewportHeight - rect.bottom;
+      const spaceLeft = rect.left;
+      const spaceRight = viewportWidth - rect.right;
 
       // Position dialog above the target
       const positionDialogAbove = () => {
-        this.dialog.style.top = `${rect.top - dialogHeight + viewportTop}px`;
+        const top = rect.top - dialogHeight;
+        this.dialog.style.top = `${top + viewportOffsetTop}px`;
         this.dialog.style.bottom = 'auto';
       }
 
       // Position dialog below the target
       const positionDialogBelow = () => {
-        this.dialog.style.top = `${rect.bottom + this.offsetVertical + viewportTop}px`;
+        const top = rect.bottom + this.offsetVertical;
+        this.dialog.style.top = `${top + viewportOffsetTop}px`;
         this.dialog.style.bottom = 'auto';
       }
 
       // Position dialog aligned to the start edge of the target (left in LTR, right in RTL)
       const positionDialogStart = () => {
-        const left = this.isRtl
-          ? rect.right - this.dialog.offsetWidth + this.offsetHorizontal + viewportLeft
-          : rect.left + this.offsetHorizontal + viewportLeft;
+        let left = this.isRtl
+          ? rect.right - this.dialog.offsetWidth + this.offsetHorizontal
+          : rect.left + this.offsetHorizontal;
 
-        this.dialog.style.left = `${left}px`;
+        // Clamp horizontally so the dialog stays inside the viewport
+        if (left < 0) {
+          left = 0;
+        }
+        if (left + dialogWidth > viewportWidth) {
+          left = Math.max(0, viewportWidth - this.dialog.offsetWidth);
+        }
+
+        this.dialog.style.left = `${left + viewportOffsetLeft}px`;
         this.dialog.style.right = 'auto';
       }
 
       // Position dialog aligned to the end edge of the target (right in LTR, left in RTL)
       const positionDialogEnd = () => {
-        const left = this.isRtl
-          ? rect.left + this.offsetHorizontal + viewportLeft
-          : rect.right - this.dialog.offsetWidth + this.offsetHorizontal + viewportLeft;
+        let left = this.isRtl
+          ? rect.left + this.offsetHorizontal
+          : rect.right - this.dialog.offsetWidth + this.offsetHorizontal;
 
-        this.dialog.style.left = `${left}px`;
+        // Clamp horizontally so the dialog stays inside the viewport
+        if (left < 0) {
+          left = 0;
+        }
+        if (left + dialogWidth > viewportWidth) {
+          left = Math.max(0, viewportWidth - this.dialog.offsetWidth);
+        }
+
+        this.dialog.style.left = `${left + viewportOffsetLeft}px`;
         this.dialog.style.right = 'auto';
       }
 

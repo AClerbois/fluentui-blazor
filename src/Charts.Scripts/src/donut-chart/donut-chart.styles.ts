@@ -22,6 +22,7 @@ import {
   typographyTitle2Styles,
   typographyTitle3Styles,
 } from '@fluentui/web-components';
+import { chartTitleStyles } from '../utils/chart-title.styles.js';
 import { tooltipBaseStyles } from '../utils/tooltip.styles.js';
 
 /**
@@ -40,6 +41,7 @@ export const styles = css`
       'chart'
       'legend';
     grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
     width: 100%;
     height: 100%;
     position: relative;
@@ -47,16 +49,12 @@ export const styles = css`
 
   /* ── Title and legend layout (CSS Grid named areas) ─────────── */
 
-  .chart-title {
-    grid-area: title;
-    margin-bottom: ${spacingVerticalS};
-    ${typographyBody1StrongStyles}
-    color: ${colorNeutralForeground1};
-    text-align: start;
-  }
+  ${chartTitleStyles}
 
   .chart-container {
     grid-area: chart;
+    min-width: 0;
+    min-height: 0;
   }
 
   fluent-chart-legend {
@@ -69,11 +67,6 @@ export const styles = css`
       'chart'
       'legend'
       'title';
-  }
-
-  :host([title-position='bottom']) .chart-title {
-    margin-bottom: 0;
-    margin-top: ${spacingVerticalS};
   }
 
   /* legend-position="top" */
@@ -131,14 +124,6 @@ export const styles = css`
       'chart  legend .    '
       'title  title  title';
     grid-template-columns: auto auto 1fr;
-  }
-
-  :host([title-align='center']) .chart-title {
-    text-align: center;
-  }
-
-  :host([title-align='end']) .chart-title {
-    text-align: end;
   }
 
   .chart {

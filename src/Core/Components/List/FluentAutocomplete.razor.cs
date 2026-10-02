@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------------
 
 using System.Linq.Expressions;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.FluentUI.AspNetCore.Components.Utilities;
@@ -16,7 +17,7 @@ namespace Microsoft.FluentUI.AspNetCore.Components;
 /// <typeparam name="TOption"></typeparam>
 /// <typeparam name="TValue"></typeparam>
 [CascadingTypeParameter(nameof(TValue))]
-public partial class FluentAutocomplete<TOption, TValue> : FluentListBase<TOption, TValue>
+public partial class FluentAutocomplete<TOption, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TValue> : FluentListBase<TOption, TValue>
 {
     private static readonly Icon SearchIcon = new CoreIcons.Regular.Size20.Search();
     private static readonly Icon BadgeCloseIcon = new CoreIcons.Regular.Size20.Dismiss();
@@ -81,6 +82,12 @@ public partial class FluentAutocomplete<TOption, TValue> : FluentListBase<TOptio
     /// </summary>
     [Parameter]
     public int ImmediateDelay { get; set; } = 400;
+
+    /// <summary>
+    /// Gets or sets the size of the input. See <see cref="Components.TextInputSize"/>
+    /// </summary>
+    [Parameter]
+    public TextInputSize? Size { get; set; }
 
     /// <summary>
     /// Filter the list of options (items) using the text written by the user.
@@ -317,8 +324,14 @@ public partial class FluentAutocomplete<TOption, TValue> : FluentListBase<TOptio
     /// <summary>
     /// Raised when the FluentListbox.SelectedItems property changes.
     /// </summary>
+    [SuppressMessage("Design", "MA0051:Method is too long", Justification = "The method handles complex logic for updating internal selected items and raising events, which makes it inherently long.")]
     private async Task InternalSelectedItemsChangedHandlerAsync(IEnumerable<TOption> items)
     {
+        if (IsUserInteractionDisabled)
+        {
+            return;
+        }
+
         var comparer = OptionSelectedComparer ?? OptionComparer;
         var itemsToAdd = items.Where(item => !_internalSelectedItems.Contains(item, comparer)).ToList();
         var itemsToRemove = _internalFilteredItems.Where(item => !items.Contains(item, comparer)).ToList();
@@ -387,6 +400,11 @@ public partial class FluentAutocomplete<TOption, TValue> : FluentListBase<TOptio
     /// <returns></returns>
     private async Task OnTextInputKeyDownAsync(KeyboardEventArgs args)
     {
+        if (IsUserInteractionDisabled)
+        {
+            return;
+        }
+
         switch (args.Key)
         {
             // When Backspace is pressed and there is no text in the input, remove the last selected item
@@ -443,6 +461,11 @@ public partial class FluentAutocomplete<TOption, TValue> : FluentListBase<TOptio
     /// <returns></returns>
     internal async Task DisplayFilteredOptionsAsync(bool showWhenInputIsEmpty)
     {
+        if (IsUserInteractionDisabled)
+        {
+            return;
+        }
+
         // If the input is empty, we don't show any options in the listbox, and we close it if it was open
         if (!showWhenInputIsEmpty && string.IsNullOrEmpty(_textInput))
         {
@@ -495,7 +518,7 @@ public partial class FluentAutocomplete<TOption, TValue> : FluentListBase<TOptio
     /// <returns></returns>
     internal async Task RemoveSelectedItemAsync(TOption? item)
     {
-        if (item is null)
+        if (IsUserInteractionDisabled || item is null)
         {
             return;
         }
@@ -526,6 +549,11 @@ public partial class FluentAutocomplete<TOption, TValue> : FluentListBase<TOptio
     /// </summary>
     private async Task SwitchOptionsPopupAsync()
     {
+        if (IsUserInteractionDisabled)
+        {
+            return;
+        }
+
         if (_isOpen)
         {
             _isOpen = false;
@@ -542,6 +570,11 @@ public partial class FluentAutocomplete<TOption, TValue> : FluentListBase<TOptio
     /// <returns></returns>
     private async Task ClearSelectionAsync()
     {
+        if (IsUserInteractionDisabled)
+        {
+            return;
+        }
+
         _isOpen = false;
         _internalSelectedItems.Clear();
         SelectedItem = default;
@@ -562,6 +595,14 @@ public partial class FluentAutocomplete<TOption, TValue> : FluentListBase<TOptio
         }
 
         NotifyValidationFieldChanged();
+    }
+
+    private void ClearInputText()
+    {
+        if (!IsUserInteractionDisabled)
+        {
+            _textInput = string.Empty;
+        }
     }
 
     /// <summary>

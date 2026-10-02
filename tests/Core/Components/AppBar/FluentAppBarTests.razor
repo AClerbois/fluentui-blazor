@@ -1,7 +1,6 @@
-﻿@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.FluentUI.AspNetCore.Components.Tests.Extensions
 @using Xunit
-@using static Microsoft.FluentUI.AspNetCore.Components.FluentOverflow
 @inherits FluentUITestContext
 
 @code
@@ -22,6 +21,7 @@
 		// Assert
 		var ab = cut.Find(".fluent-appbar");
 		Assert.NotNull(ab);
+                Assert.Contains("--fluent-overflow-gap: 2px", cut.Find("fluent-overflow").GetAttribute("style"));
     }
 
     [Fact]
@@ -40,10 +40,11 @@
     public async Task FluentAppBar_Overflow()
     {
         // Arrange
+        var visibilityChanges = new List<bool>();
 
         // Act
         var cut = Render<FluentAppBar>(
-            @<FluentAppBar Id="appbar">
+            @<FluentAppBar Id="appbar" PopoverVisibilityChanged="value => visibilityChanges.Add(value)">
                 <FluentAppBarItem Href="/" Id="id1" Text="My item" IconRest="@(new Samples.Icons.Samples.Info())" IconActive="@(new Samples.Icons.Samples.Warning())" Tooltip="My item tooltip">
             </FluentAppBarItem>
                 <FluentAppBarItem Href="/" Id="id2" Text="My item 2" IconRest="@(new Samples.Icons.Samples.Info())" IconActive="@(new Samples.Icons.Samples.Warning())" Tooltip="My item 2 tooltip">
@@ -52,7 +53,7 @@
         );
 
         // This does not contribute to html output but helps for code coverage testing
-        await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id1", Overflow = false, Text = "My item" }, new OverflowItem() { Id = "id2", Overflow = true, Text = "My item 2" } });
+        await cut.Instance.OverflowRaisedAsync([new OverflowItem { Id = "id2", Text = "My item 2" }]);
 
         var item = cut.FindComponent<FluentAppBarItem>();
         item.Instance.Overflow = true;
@@ -62,10 +63,34 @@
 		// Assert
 		var popup = cut.Find("fluent-popover-b");
 		Assert.NotNull(popup);
+        Assert.Equal("appbar-popover-appbar", popup.Id);
+
+        var trigger = cut.Find(".fluent-appbar-more-item[slot='trigger']");
+        Assert.Equal("BUTTON", trigger.TagName);
+        Assert.Equal("button", trigger.GetAttribute("type"));
+        Assert.Equal("dialog", trigger.GetAttribute("aria-haspopup"));
+        Assert.Equal("false", trigger.GetAttribute("aria-expanded"));
+        Assert.Equal(popup.Id, trigger.GetAttribute("aria-controls"));
+        Assert.Equal("dialog", popup.GetAttribute("role"));
+        Assert.Equal(trigger.GetAttribute("title"), popup.GetAttribute("aria-label"));
+
+        await trigger.ClickAsync();
+        Assert.Equal("true", trigger.GetAttribute("aria-expanded"));
+        Assert.Equal([true], visibilityChanges);
+
+        await cut.Find("fluent-overflow").TriggerEventAsync("onoverflowchange", new OverflowChangedEventArgs
+        {
+            Id = "appbar-overflow",
+            Items = [],
+        });
+
+        Assert.Equal("false", trigger.GetAttribute("aria-expanded"));
+        Assert.Empty(cut.FindAll("fluent-popover-b"));
+        Assert.Equal([true, false], visibilityChanges);
     }
 
     [Fact]
-    public async Task FluentAppBar_OnOverflowChangedAsync_UsesOrderedItemIds()
+    public async Task FluentAppBar_OnOverflowChangedAsync_UsesHiddenItemIds()
     {
         // Arrange
         var items = new List<IAppBarItem>
@@ -85,8 +110,8 @@
         var args = new OverflowChangedEventArgs
         {
             Id = $"{cut.Instance.Id}-overflow",
-            FirstOverflowIndex = 1,
-            OrderedItemIds = ["3", "2", "1"]
+            OverflowCount = 2,
+            Items = [new() { Id = "2", Index = 1 }, new() { Id = "1", Index = 2 }]
         };
 
         // Act
@@ -100,6 +125,14 @@
         Assert.False(context!.Apps["3"].Overflow ?? false);
         Assert.True(context.Apps["2"].Overflow ?? false);
         Assert.True(context.Apps["1"].Overflow ?? false);
+
+        await cut.Find("fluent-overflow").TriggerEventAsync("onoverflowchange", new OverflowChangedEventArgs
+        {
+            Id = $"{cut.Instance.Id}-overflow",
+            Items = [],
+        });
+
+        Assert.All(context.Apps.Values, app => Assert.False(app.Overflow ?? false));
     }
 
     [Fact]
@@ -118,7 +151,7 @@
         );
 
         // This does not contribute to html output but helps for code coverage testing
-        await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id1", Overflow = false, Text = "My item" }, new OverflowItem() { Id = "id2", Overflow = true, Text = "My item 2" } });
+        await cut.Instance.OverflowRaisedAsync([new OverflowItem { Id = "id2", Text = "My item 2" }]);
         var item = cut.FindComponent<FluentAppBarItem>();
         item.Instance.Overflow = true;
 
@@ -138,6 +171,33 @@
         // Assert
         var ab = cut.Find(".fluent-appbar");
         Assert.NotNull(ab);
+    }
+
+    [Fact]
+    public async Task FluentAppBar_OverflowEvent_HandlesMoreThanTwentyFiveItems()
+    {
+        var items = Enumerable.Range(0, 32)
+            .Select(index => new TestAppBarItem { Id = $"app-{index}", Text = $"App {index}", IconRest = new Samples.Icons.Samples.Info() })
+            .ToList();
+        var cut = Render(@<FluentAppBar Id="appbar" Items="items" />);
+        var host = cut.Find("fluent-overflow");
+
+        Assert.Null(host.GetAttribute("max-overflow-items"));
+        Assert.NotNull(cut.Find("[slot='trigger']"));
+        await host.TriggerEventAsync("onoverflowchange", new OverflowChangedEventArgs
+        {
+            Id = "appbar-overflow",
+            OverflowCount = 30,
+            Items = items.Skip(2).Select((item, index) => new OverflowChangedItem { Id = item.Id, Text = item.Text, Index = index + 2 }).ToArray(),
+        });
+
+        Assert.Equal(30, cut.FindAll("fluent-popover-b .fluent-appbar-item").Count);
+
+        await host.TriggerEventAsync("onoverflowchange", new OverflowChangedEventArgs { Id = "another-appbar", Items = [] });
+        Assert.Equal(30, cut.FindAll("fluent-popover-b .fluent-appbar-item").Count);
+
+        await host.TriggerEventAsync("onoverflowchange", new OverflowChangedEventArgs { Id = "appbar-overflow", Items = [] });
+        Assert.Empty(cut.FindAll("fluent-popover-b"));
     }
 
     [Fact]
@@ -279,41 +339,6 @@
         Assert.False(ab.HasAttribute("hide-bar"));
     }
 
-    [Fact]
-    public async Task FluentAppBar_HandlePopoverKeyDownAsync_Enter()
-    {
-        // Arrange
-        bool popoverVisible = false;
-        var cut = Render<FluentAppBar>(@<FluentAppBar Id="appbar" PopoverVisibilityChanged="@((bool visible) => popoverVisible = visible)">
-            <FluentAppBarItem Id="id1" Text="Item1" Href="/" IconRest="@(new Samples.Icons.Samples.Info())" IconActive="@(new Samples.Icons.Samples.Warning())" Tooltip="Tooltip">
-            </FluentAppBarItem>
-            <FluentAppBarItem Id="id2" Text="Item2" Href="/" IconRest="@(new Samples.Icons.Samples.Info())" IconActive="@(new Samples.Icons.Samples.Warning())" Tooltip="Tooltip">
-            </FluentAppBarItem>
-        </FluentAppBar>
-	);
-
-		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id2", Overflow = true, Text = "Item2" } });
-		cut.Render();
-
-		var method = typeof(FluentAppBar).GetMethod("HandlePopoverKeyDownAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-		var targetId = $"appbar-more-{cut.Instance.Id}";
-
-		// Act for Enter
-		popoverVisible = false;
-		var argsEnter = new FluentKeyCodeEventArgs { Key = KeyCode.Enter, TargetId = targetId };
-		if (method is not null && cut.Instance is not null)
-		{
-			var result = method.Invoke(cut.Instance, [argsEnter]);
-			if (result is Task task)
-			{
-				await task;
-			}
-		}
-
-		// Assert
-		Assert.True(popoverVisible);
-	}
-
 	[Fact]
 	public async Task FluentAppBar_HandlePopoverKeyDownAsync_Right()
 	{
@@ -327,7 +352,7 @@
     </FluentAppBar>
 	);
 
-		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id2", Overflow = true, Text = "Item2" } });
+		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id2", Text = "Item2" } });
 		cut.Render();
 
 		var method = typeof(FluentAppBar).GetMethod("HandlePopoverKeyDownAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -361,7 +386,7 @@
 			</FluentAppBarItem>
 		</FluentAppBar>);
 
-		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id2", Overflow = true, Text = "Item2" } });
+		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id2", Text = "Item2" } });
 		cut.Render();
 
 		var method = typeof(FluentAppBar).GetMethod("HandlePopoverKeyDownAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -395,7 +420,7 @@
 			</FluentAppBarItem>
 		</FluentAppBar>);
 
-		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id2", Overflow = true, Text = "Item2" } });
+		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id2", Text = "Item2" } });
 		cut.Render();
 
 		var method = typeof(FluentAppBar).GetMethod("HandlePopoverKeyDownAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -428,7 +453,7 @@
 			</FluentAppBarItem>
 		</FluentAppBar>);
 
-		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id2", Overflow = true, Text = "Item2" } });
+		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id2", Text = "Item2" } });
 		cut.Render();
 
 		var method = typeof(FluentAppBar).GetMethod("HandlePopoverKeyDownAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -490,9 +515,9 @@
 	);
 
 		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] {
-            new OverflowItem() { Id = "id1", Overflow = true, Text = "Apple" },
-            new OverflowItem() { Id = "id2", Overflow = true, Text = "Banana" },
-            new OverflowItem() { Id = "id3", Overflow = true, Text = "Cherry" }
+            new OverflowItem() { Id = "id1", Text = "Apple" },
+            new OverflowItem() { Id = "id2", Text = "Banana" },
+            new OverflowItem() { Id = "id3", Text = "Cherry" }
 	});
 
 		var searchTermField = typeof(FluentAppBar).GetField("_searchTerm", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -562,11 +587,11 @@
 		);
 
 		// Act - Simulate overflow for the item
-		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id1", Overflow = true, Text = "My item" } });
+		await cut.Instance.OverflowRaisedAsync(new OverflowItem[] { new OverflowItem() { Id = "id1", Text = "My item" } });
 		cut.Render();
 
 		// Show popover by clicking the "More" button
-		var moreButton = cut.Find(".fluent-appbar-item[fixed]");
+        var moreButton = cut.Find(".fluent-appbar-more-item[slot='trigger']");
 		await moreButton.ClickAsync();
 		cut.Render();
 

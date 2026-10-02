@@ -1,6 +1,7 @@
 ﻿@using Microsoft.FluentUI.AspNetCore.Components.Extensions
 @using Microsoft.FluentUI.AspNetCore.Components.Tests.Extensions
 @using Microsoft.FluentUI.AspNetCore.Components.Utilities
+@using Microsoft.AspNetCore.Components.Forms
 @using System.ComponentModel.DataAnnotations
 @using Xunit;
 @inherits FluentUITestContext
@@ -213,6 +214,69 @@
     }
 
     [Fact]
+    public async Task FluentRadioGroup_ReadOnly_DoesNotChangeValue()
+    {
+        // Arrange
+        var selectedValue = "option1";
+        var cut = Render(
+            @<FluentRadioGroup TValue="string" ReadOnly="true" @bind-Value="@selectedValue">
+                <FluentRadio Id="MyOption1" Value="@("option1")" Label="Option 1" />
+                <FluentRadio Id="MyOption2" Value="@("option2")" Label="Option 2" />
+            </FluentRadioGroup>);
+
+        // Act
+        await cut.FindComponent<FluentRadioGroup<string>>().Instance.RadioChangeHandlerAsync(new RadioEventArgs
+        {
+            Id = "MyOption2",
+            Value = "option2"
+        });
+
+        // Assert
+        Assert.Equal("option1", selectedValue);
+        Assert.Equal("true", cut.Find("fluent-radio-group").GetAttribute("aria-readonly"));
+        Assert.All(cut.FindAll("fluent-radio"), radio =>
+        {
+            Assert.Equal("-1", radio.GetAttribute("tabindex"));
+            Assert.False(radio.HasAttribute("aria-readonly"));
+        });
+    }
+
+    [Fact]
+    public async Task FluentRadioGroup_RadioChange_MarksFieldModified_AndUpdatesValidationState()
+    {
+        // Arrange
+        var model = new RadioGroupValidationModel();
+        var editContext = new EditContext(model);
+        var fieldIdentifier = editContext.Field(nameof(RadioGroupValidationModel.SelectedOption));
+
+        var cut = Render(
+            @<EditForm EditContext="@editContext">
+                <DataAnnotationsValidator />
+                <FluentRadioGroup TValue="string" @bind-Value="@model.SelectedOption">
+                    <FluentRadio Id="MyOption1" Value="@("option1")" Label="Option 1"></FluentRadio>
+                    <FluentRadio Id="MyOption2" Value="@("option2")" Label="Option 2"></FluentRadio>
+                </FluentRadioGroup>
+                <button type="submit">Submit</button>
+            </EditForm>);
+
+        cut.Find("button[type='submit']").Click();
+        Assert.Contains("Selection is required", cut.Markup, StringComparison.Ordinal);
+        Assert.False(editContext.IsModified(fieldIdentifier));
+
+        // Act
+        await cut.InvokeAsync(() => cut.FindComponent<FluentRadioGroup<string>>().Instance.RadioChangeHandlerAsync(new RadioEventArgs()
+        {
+            Id = "MyOption2",
+            Value = "option2"
+        }));
+
+        // Assert
+        Assert.Equal("option2", model.SelectedOption);
+        Assert.True(editContext.IsModified(fieldIdentifier));
+        Assert.DoesNotContain("Selection is required", cut.Markup, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FluentRadioGroup_DefaultGroupName()
     {
         // Arrange & Act
@@ -270,5 +334,11 @@
 
         // Assert
         Assert.Null(result);
+    }
+
+    private sealed class RadioGroupValidationModel
+    {
+        [Required(ErrorMessage = "Selection is required")]
+        public string? SelectedOption { get; set; }
     }
 }

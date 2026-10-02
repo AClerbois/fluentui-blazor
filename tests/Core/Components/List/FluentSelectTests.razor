@@ -197,6 +197,30 @@
         Assert.Equal(new[] { "One", "Two" }, selectedItems);
     }
 
+    [Fact]
+    public async Task FluentSelect_ReadOnly_DoesNotChangeSelection()
+    {
+        // Arrange
+        string? value = "One";
+        IEnumerable<string?> selectedItems = ["One"];
+        var cut = Render(@<FluentSelect ReadOnly="true"
+                                       Items="@Digits"
+                                       @bind-Value="@value"
+                                       @bind-SelectedItems="@selectedItems" />);
+        var twoId = cut.FindAll("fluent-option").Single(option => option.GetAttribute("value") == "Two").GetAttribute("id");
+
+        // Act
+        await cut.FindComponent<FluentSelect<string?, string?>>().Instance.OnDropdownChangeHandlerAsync(new DropdownEventArgs
+        {
+            SelectedOptions = twoId,
+        });
+
+        // Assert
+        Assert.Equal("One", value);
+        Assert.Equal(["One"], selectedItems);
+        Assert.Equal("-1", cut.Find("fluent-dropdown").GetAttribute("tabindex"));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(null)]
@@ -318,6 +342,20 @@
         Assert.Equal(expected, attribute);
     }
 
+    [Fact]
+    public void FluentSelect_ControlStyle_AppliesStyleToInternalControl()
+    {
+        // Arrange and Act
+        Render(@<FluentSelect ControlStyle="color: red;" Items="@Digits" TOption="string" TValue="string" />);
+
+        // Assert
+        var invocation = JSInterop.VerifyInvoke("Microsoft.FluentUI.Blazor.Utilities.Attributes.applyShadowStyle");
+        Assert.Equal(3, invocation.Arguments.Count);
+        Assert.IsType<ElementReference>(invocation.Arguments[0]);
+        Assert.Equal(":host .control", invocation.Arguments[1]);
+        Assert.Equal("color: red;", invocation.Arguments[2]);
+    }
+
     [Theory]
     [InlineData("1", 1, null)]
     [InlineData("abc", 0, "The 'Unknown Bound Field' field is not valid.")]
@@ -421,6 +459,28 @@
         // Assert
         Assert.True(valueChangedCalled, "ValueChanged should have been invoked");
         Assert.Equal("Two", selectedValue);
+    }
+
+    [Fact]
+    public async Task FluentSelect_Manual_Multiple_OnDropdownChange()
+    {
+        IEnumerable<string> selectedItems = [];
+
+        var cut = Render(@<FluentSelect TOption="string" TValue="string" Multiple="true" @bind-SelectedItems="@selectedItems">
+            <FluentOptionString Value="One">One</FluentOptionString>
+            <FluentOptionString Value="Two">Two</FluentOptionString>
+            <FluentOptionString Value="Three">Three</FluentOptionString>
+        </FluentSelect>);
+        var selectedIds = cut.FindAll("fluent-option")
+                             .Where(option => option.GetAttribute("value") is "One" or "Two")
+                             .Select(option => option.GetAttribute("id"));
+
+        await cut.FindComponent<FluentSelect<string, string>>().Instance.OnDropdownChangeHandlerAsync(new DropdownEventArgs
+        {
+            SelectedOptions = string.Join(';', selectedIds),
+        });
+
+        Assert.Equal(new[] { "One", "Two" }, selectedItems);
     }
 
     [Fact]
@@ -616,6 +676,20 @@
         // Assert - The supplied expression overrides the default set in the constructor
         var instance = cut.FindComponent<FluentSelect<string, string>>().Instance;
         Assert.Same(expression, instance.SelectedItemsExpression);
+    }
+
+    [Fact]
+    public void FluentSelect_AriaLabel()
+    {
+        // Arrange and Act
+        string ariaLabel = "Digits";
+        // If AriaLabel is provided it should be used instead of the Label or Placeholder for the aria-label attribute
+        var cut = Render(@<FluentSelect AriaLabel="@ariaLabel" Placeholder="Select a digit" Label="All digits" Items="@Digits" TOption="string" TValue="string" />);
+        var dropdown = cut.Find("fluent-dropdown");
+        var value = dropdown.GetAttribute("aria-label");
+
+        // Assert
+        Assert.Equal(ariaLabel, value);
     }
 
     public record Person

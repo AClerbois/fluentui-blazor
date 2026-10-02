@@ -28,6 +28,12 @@ public partial class FluentHorizontalBarChart : FluentChartBase
     public IReadOnlyList<HorizontalBarChartSeries> ChartData { get; set; } = [];
 
     /// <summary>
+    /// Gets or sets a value indicating whether a gradient fill is applied to the bars, arcs or areas.
+    /// </summary>
+    [Parameter]
+    public bool EnableGradient { get; set; }
+
+    /// <summary>
     /// Gets or sets the visual <see cref="HorizontalBarChartVariant"/> variant to use for rendering
     /// the horizontal bar chart.
     /// </summary>
@@ -43,6 +49,12 @@ public partial class FluentHorizontalBarChart : FluentChartBase
     /// </summary>
     [Parameter]
     public bool HideRatio { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the legend is shown when each bar has a single data point.
+    /// </summary>
+    [Parameter]
+    public bool ShowLegendForSinglePointBar { get; set; }
 
     /// <summary>
     /// Gets or sets the chart data mode. Accepted values are <c>"default"</c>, <c>"fraction"</c>, and <c>"percentage"</c>.
