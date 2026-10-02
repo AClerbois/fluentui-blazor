@@ -100,10 +100,10 @@ Configure your MCP client:
 
 ### Specifying a Version
 
-You can specify a specific version (the example uses the first RC version 5.0.0-rc.1-26049.2):
+You can specify a specific version:
 
 ```bash
-dnx Microsoft.FluentUI.AspNetCore.McpServer@5.0.0-rc.1-26049.2
+dnx Microsoft.FluentUI.AspNetCore.McpServer@5.0.0
 ```
 
 Or in the configuration:
@@ -114,7 +114,7 @@ Or in the configuration:
         "fluent-ui-blazor": {
             "command": "dnx",
             "args": [
-                "Microsoft.FluentUI.AspNetCore.McpServer@5.0.0-rc.1-26049.2"
+                "Microsoft.FluentUI.AspNetCore.McpServer@5.0.0"
             ]
         }
     }
